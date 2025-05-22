@@ -20,17 +20,10 @@ inputs:
     description: 'Base URL of Artifactory'
     required: false
     default: 'https://eu.files.nordicsemi.com/artifactory'
-  artifactory-repository:
-    description: 'Artifactory repository name'
-    required: false
-    default: 'ncs-src-mirror'
-  artifactory-target-prefix:
-    description: 'Prefix path in Artifactory (e.g., external)'
+  artifactory-path:
+    description: 'Full Artifactory upload path'
     required: true
     default: ''
-  artifactory-target-file-name:
-    description: 'Source file name in Artifactory '
-    required: false
   artifactory-user:
     description: 'Artifactory username (pass as workflow secret)'
     required: true
@@ -49,91 +42,49 @@ runs:
         path: workspace/${{ inputs.path }}
         west-update-args: ${{ inputs.west-update-args }}
 
-
-    - name: Configure git and run garbage collection
+    - name: Prepare repository and generate archive
       shell: bash
       run: |
         cd "workspace/${{ inputs.path }}"
-        git config --global pack.windowMemory "32m"
-        west forall -c 'git gc --prune --aggressive'
+        
+        # Configure git for better performance
+        git config --global pack.windowMemory "128m"
+        git config --global core.bigFileThreshold "20m"
+        
+        # Generate safe filename
+        WEST_ARG_SAFE="$(echo "${{ inputs.west-update-args }}" | tr ' ' '_')"
+        FILE="${GITHUB_REPOSITORY##*/}-${GITHUB_REF_NAME//\//-}${WEST_ARG_SAFE:+-$WEST_ARG_SAFE}"
+        echo "FILE=${FILE}" >> $GITHUB_ENV
 
+        # Remove unnecessary files
+        west forall -c 'git gc --prune=now --aggressive'
+    
     - name: Create tar archive
       shell: bash
+      run: tar -C workspace -czvf "${FILE}.tar.gz" . > /dev/null
+
+    - name: Temporarily store artifact
+      uses: actions/upload-artifact@v4
+      with:
+        path: workspace
+        name: ${{ env.FILE }}
+        include-hidden-files: true
+        compression-level: 9
+
+    - name: End workflow if event is workflow_dispatch
+      if: ${{ github.event_name == 'workflow_dispatch' }}
+      shell: bash
       run: |
-        REPO_NAME="${GITHUB_REPOSITORY##*/}"
-        TAG="${GITHUB_REF_NAME}"
-        FILE_NAME="${REPO_NAME}-${TAG}.tar.gz"
-        tar -C workspace -czvf "${FILE_NAME}" .
+        echo "Workflow dispatched manually, ending workflow early."
+        exit 0
 
     - name: Set up JFrog CLI
-      uses: jfrog/setup-jfrog-cli@v4
+      uses: jfrog/setup-jfrog-cli@v4.5.11
 
     - name: Upload to Artifactory
       shell: bash
-      env:
-        ARTIFACTORY_URL: ${{ inputs.artifactory-url }}
-        REPOSITORY: ${{ inputs.artifactory-repository }}
-        TARGET_PREFIX: ${{ inputs.artifactory-target-prefix }}
-        USER: ${{ inputs.artifactory-user }}
-        PASS: ${{ inputs.artifactory-pass }}
       run: |
-        REPO_NAME="${GITHUB_REPOSITORY##*/}"
-        TAG="${GITHUB_REF_NAME}"
-        FILE_NAME="${REPO_NAME}-${TAG}.tar.gz"
-        TARGET_DIR="${REPOSITORY}/${TARGET_PREFIX}/${TAG}/"
-        if [ -n "${{ inputs.artifactory-target-file-name }}" ]; then
-          UPLOAD_NAME="${{ inputs.artifactory-target-file-name }}"
-        else
-          UPLOAD_NAME="${FILE_NAME}"
-        fi
-        jfrog rt u "${FILE_NAME}" "${TARGET_DIR}${UPLOAD_NAME}" \
-          --url="${ARTIFACTORY_URL}" \
-          --user="${USER}" \
-          --password="${PASS}"
-
-#===========narrow===========
-    - name: Checkout sources (narrow)
-      uses: nrfconnect/action-checkout-west-update@main
-      with:
-        git-ref: ${{ inputs.git-ref }}
-        git-fetch-depth: ${{ inputs.git-fetch-depth }}
-        path: workspace-narrow/${{ inputs.path }}
-        west-update-args: "--narrow -o=--depth=1 ${{ inputs.west-update-args }}"
-
-    - name: Configure git and run garbage collection (narrow)
-      shell: bash
-      run: |
-        cd "workspace-narrow/${{ inputs.path }}"
-        git config --global pack.windowMemory "32m"
-        west forall -c 'git gc --prune --aggressive'
-
-    - name: Create tar archive (narrow)
-      shell: bash
-      run: |
-        REPO_NAME="${GITHUB_REPOSITORY##*/}"
-        TAG="${GITHUB_REF_NAME}"
-        FILE_NAME="${REPO_NAME}-${TAG}-narrow.tar.gz"
-        tar -C ./workspace-narrow -czvf "${FILE_NAME}" .
-
-    - name: Upload to Artifactory (narrow)
-      shell: bash
-      env:
-        ARTIFACTORY_URL: ${{ inputs.artifactory-url }}
-        REPOSITORY: ${{ inputs.artifactory-repository }}
-        TARGET_PREFIX: ${{ inputs.artifactory-target-prefix }}
-        USER: ${{ inputs.artifactory-user }}
-        PASS: ${{ inputs.artifactory-pass }}
-      run: |
-        REPO_NAME="${GITHUB_REPOSITORY##*/}"
-        TAG="${GITHUB_REF_NAME}"
-        FILE_NAME="${REPO_NAME}-${TAG}-narrow.tar.gz"
-        TARGET_DIR="${REPOSITORY}/${TARGET_PREFIX}/${TAG}/"
-        if [ -n "${{ inputs.artifactory-target-file-name }}" ]; then
-          UPLOAD_NAME="narrow-${{ inputs.artifactory-target-file-name }}"
-        else
-          UPLOAD_NAME="${FILE_NAME}"
-        fi
-        jfrog rt u "${FILE_NAME}" "${TARGET_DIR}${UPLOAD_NAME}" \
-          --url="${ARTIFACTORY_URL}" \
-          --user="${USER}" \
-          --password="${PASS}"
+        jfrog rt u ${FILE}.tar.gz ${{ inputs.artifactory-path }} \
+          --url=${{ inputs.artifactory-url }} \
+          --user=${{ inputs.artifactory-user }} \
+          --password=${{ inputs.artifactory-pass }}
