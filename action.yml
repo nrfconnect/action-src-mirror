@@ -20,20 +20,39 @@ inputs:
     description: 'Base URL of Artifactory'
     required: false
     default: 'https://eu.files.nordicsemi.com'
-  artifactory-path:
-    description: 'Full Artifactory upload path'
+  artifactory-base-folder-path:
+    description: 'Artifactory upload folder path'
     required: true
-    default: ''
   artifactory-user:
     description: 'Artifactory username (pass as workflow secret)'
     required: true
   artifactory-pass:
     description: 'Artifactory password or API key (pass as workflow secret)'
     required: true
+  stable:
+    description: 'Set to true to mark the new entry as stable'
+    required: false
+    default: 'false'
+  sdk-manager-api-version:
+    description: 'SDK Manager API version'
+    required: false
+    default: '2'
+  repository-type:
+    description: 'Repository type for SDK Manager API version 2'
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
+    - name: Remove trailing slash if present
+      shell: bash
+      run: |
+       CLEAN_PATH="${{ inputs.artifactory-base-folder-path }}"
+       CLEAN_PATH="${CLEAN_PATH%/}"
+       echo "ARTIFACTORY_BASE_FOLDER_PATH_CLEAN=$CLEAN_PATH" >> $GITHUB_ENV
+
+
     - name: Checkout sources
       uses: nrfconnect/action-checkout-west-update@main
       with:
@@ -74,7 +93,7 @@ runs:
     - name: End workflow if event is workflow_dispatch
       if: |
         github.event_name == 'workflow_dispatch' &&
-        contains(inputs.artifactory-path, 'external')
+        contains(env.ARTIFACTORY_BASE_FOLDER_PATH_CLEAN, 'external')
       shell: bash
       run: |
         echo "Manual workflow executions are not allowed to push to external"
@@ -96,15 +115,59 @@ runs:
     - name: Upload to Artifactory
       shell: bash
       run: |
-        jfrog rt u ${FILE}.tar.gz ${{ inputs.artifactory-path }}
+        if [[ "${{ inputs.sdk-manager-api-version }}" == "1" ]]; then
+          SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.ref_name }}/src.tar.gz"
+        else
+          SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.event.repository.name }}/${{ github.ref_name }}/src.tar.gz"
+        fi
+        echo "SRC_ARTIFACTORY_PATH=${SRC_ARTIFACTORY_PATH}"
+        jfrog rt u ${FILE}.tar.gz ${SRC_ARTIFACTORY_PATH} --fail-no-op
         if [[ "tag" == "${{ github.ref_type }}" ]]; then
           jfrog ds rbc "${{ github.event.repository.name }}" "${{ github.ref_name }}" \
-                       "${{ inputs.artifactory-path }}"
+                       "${SRC_ARTIFACTORY_PATH}"
           jfrog ds rbs "${{ github.event.repository.name }}" "${{ github.ref_name }}"
           jfrog ds rbd "${{ github.event.repository.name }}" "${{ github.ref_name }}" \
                        --create-repo \
                        --country-codes 'CN'
         fi
+
+    - name: Download index.json
+      shell: bash
+      run: |
+        INDEX_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/sdk-manager/index.json"
+        echo "INDEX_ARTIFACTORY_PATH=${INDEX_ARTIFACTORY_PATH}" >> $GITHUB_ENV
+        jf rt download ${INDEX_ARTIFACTORY_PATH} index.json --quiet --flat --fail-no-op 
+        cp index.json index.json.bak
+
+    - name: Upload index.json backup
+      uses: actions/upload-artifact@v4
+      with:
+        name: index.json.bak
+        path: index.json.bak
+
+    - name: Update index.json
+      shell: bash
+      run: |
+        VERSION="${{ github.ref_name }}"
+        STABLE_FLAG=""
+        if [[ "${{ inputs.stable }}" == "true" ]]; then
+          STABLE_FLAG="--stable"
+        fi
+        
+        API_VERSION_FLAG="--api-version ${{ inputs.sdk-manager-api-version }}"
+        REPO_TYPE_FLAG=""
+        if [[ "${{ inputs.sdk-manager-api-version }}" == "2" ]] && [[ -n "${{ inputs.repository-type }}" ]]; then
+          REPO_TYPE_FLAG="--repository-type ${{ inputs.repository-type }}"
+        fi
+        
+        python3 "${{ github.action_path }}/index_manager.py" \
+          --index index.json \
+          --src-file "${FILE}.tar.gz" \
+          --version "${VERSION}" \
+          $STABLE_FLAG \
+          $API_VERSION_FLAG \
+          $REPO_TYPE_FLAG
+        jfrog rt u index.json ${{env.INDEX_ARTIFACTORY_PATH}} --fail-no-op
 
     - name: Remove artifactory server
       if: |
