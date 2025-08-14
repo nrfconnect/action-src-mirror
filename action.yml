@@ -61,6 +61,34 @@ runs:
         path: workspace/${{ inputs.path }}
         west-update-args: ${{ inputs.west-update-args }}
 
+    - name: Find proper toolchain version
+      if: ${{ inputs.sdk-manager-api-version == '2' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "workspace"
+        TOOLCHAIN_CHECKSUM="$(./nrf/scripts/print_toolchain_checksum.sh)"
+        echo "TOOLCHAIN_CHECKSUM=${TOOLCHAIN_CHECKSUM}"
+
+        TOOLCHAIN_INDEX_URL="https://files.nordicsemi.com/artifactory/NCS/external/bundles/v3/index-linux-x86_64.json"
+        curl -fsSL "${TOOLCHAIN_INDEX_URL}" -o toolchains.json
+
+        VERSION_STRICT="$(jq -r --arg cs "$TOOLCHAIN_CHECKSUM" '[ .[] | select((.json_api_version == 2) and (.metadata.version == $cs) and (.key | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))) | .key ] | .[-1] // empty' toolchains.json)"
+        if [[ -n "${VERSION_STRICT}" ]]; then
+          TOOLCHAIN_VERSION="${VERSION_STRICT}"
+        else
+          VERSION_LOOSE="$(jq -r --arg cs "$TOOLCHAIN_CHECKSUM" '[ .[] | select((.json_api_version == 2) and (.metadata.version == $cs) and (.key | test("^v[0-9]+\\.[0-9]+\\.[0-9]+.*$"))) | .key ] | .[-1] // empty' toolchains.json)"
+          if [[ -n "${VERSION_LOOSE}" ]]; then
+            TOOLCHAIN_VERSION="${VERSION_LOOSE}"
+          else
+            echo "Error: No toolchain version found for checksum ${TOOLCHAIN_CHECKSUM}" >&2
+            exit 1
+          fi
+        fi
+
+        echo "TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION}" >> "$GITHUB_ENV"
+        echo "Resolved TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION}"
+
     - name: Prepare repository and generate archive
       shell: bash
       run: |
@@ -159,6 +187,11 @@ runs:
         if [[ "${{ inputs.sdk-manager-api-version }}" == "2" ]] && [[ -n "${{ inputs.repository-type }}" ]]; then
           REPO_TYPE_FLAG="--repository-type ${{ inputs.repository-type }}"
         fi
+
+        TOOLCHAIN_VERSION_FLAG=""
+        if [[ -n "${TOOLCHAIN_VERSION:-}" ]]; then
+          TOOLCHAIN_VERSION_FLAG="--toolchain-version ${TOOLCHAIN_VERSION}"
+        fi
         
         python3 "${{ github.action_path }}/index_manager.py" \
           --index index.json \
@@ -166,7 +199,7 @@ runs:
           --version "${VERSION}" \
           $STABLE_FLAG \
           $API_VERSION_FLAG \
-          $REPO_TYPE_FLAG
+          $REPO_TYPE_FLAG $TOOLCHAIN_VERSION_FLAG
         jfrog rt u index.json ${{env.INDEX_ARTIFACTORY_PATH}} --fail-no-op
 
     - name: Remove artifactory server
