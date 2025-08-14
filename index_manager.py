@@ -21,6 +21,7 @@ def main():
     parser.add_argument("--stable", action="store_true", default=False)
     parser.add_argument("--api-version", type=int, choices=[1,2], default=2)
     parser.add_argument("--repository-type", required=False)
+    parser.add_argument("--toolchain-version", required=False)
     args = parser.parse_args()
 
     if args.api_version == 2 and not args.repository_type:
@@ -30,11 +31,12 @@ def main():
     with open(args.index) as f:
         data = json.load(f)
 
+    selected_toolchain_version = args.toolchain_version or args.version
     sha512 = calc_sha512(args.src_file)
     bundle = {
         "version": args.version,
         "sha512": sha512,
-        "toolchain": {"versions": [args.version]}
+        "toolchain": {"versions": [selected_toolchain_version]}
     }
 
     if args.api_version == 1:
