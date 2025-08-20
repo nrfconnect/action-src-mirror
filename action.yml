@@ -143,10 +143,12 @@ runs:
     - name: Upload to Artifactory
       shell: bash
       run: |
+        V1_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.ref_name }}/src.tar.gz"
+        V2_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.event.repository.name }}/${{ github.ref_name }}/src.tar.gz"
         if [[ "${{ inputs.sdk-manager-api-version }}" == "1" ]]; then
-          SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.ref_name }}/src.tar.gz"
+          SRC_ARTIFACTORY_PATH=${V1_SRC_ARTIFACTORY_PATH}
         else
-          SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.event.repository.name }}/${{ github.ref_name }}/src.tar.gz"
+          SRC_ARTIFACTORY_PATH=${V2_SRC_ARTIFACTORY_PATH}
         fi
         echo "SRC_ARTIFACTORY_PATH=${SRC_ARTIFACTORY_PATH}"
         jfrog rt u ${FILE}.tar.gz ${SRC_ARTIFACTORY_PATH} --fail-no-op
@@ -157,6 +159,9 @@ runs:
           jfrog ds rbd "${{ github.event.repository.name }}" "${{ github.ref_name }}" \
                        --create-repo \
                        --country-codes 'CN'
+        fi
+        if [[ "${{ inputs.sdk-manager-api-version }}" == "1" ]]; then
+          jfrog rt cp --fail-no-op --flat $V1_SRC_ARTIFACTORY_PATH $V2_SRC_ARTIFACTORY_PATH 
         fi
 
     - name: Download index.json
