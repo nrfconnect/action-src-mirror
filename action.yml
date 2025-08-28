@@ -67,7 +67,7 @@ runs:
       run: |
         set -euo pipefail
         cd "workspace"
-        TOOLCHAIN_CHECKSUM="$(./nrf/scripts/print_toolchain_checksum.sh)"
+        TOOLCHAIN_CHECKSUM="c5be9c56c7"
         echo "TOOLCHAIN_CHECKSUM=${TOOLCHAIN_CHECKSUM}"
 
         TOOLCHAIN_INDEX_URL="https://files.nordicsemi.com/artifactory/NCS/external/bundles/v3/index-linux-x86_64.json"
