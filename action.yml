@@ -38,7 +38,11 @@ inputs:
     required: false
     default: '2'
   repository-type:
-    description: 'Repository type for SDK Manager API version 2'
+    description: '(Only for SDK Manager API version=2) Repository type'
+    required: false
+    default: ''
+  toolchain-version:
+    description: '(Only for SDK Manager API version=2) If not set, the version will be determined based on sdk-nrf revision.'
     required: false
     default: ''
 
@@ -62,7 +66,7 @@ runs:
         west-update-args: ${{ inputs.west-update-args }}
 
     - name: Find proper toolchain version
-      if: ${{ inputs.sdk-manager-api-version == '2' }}
+      if: ${{ inputs.sdk-manager-api-version == '2' && !inputs.toolchain-version }}
       shell: bash
       run: |
         set -euo pipefail
@@ -88,6 +92,13 @@ runs:
 
         echo "TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION}" >> "$GITHUB_ENV"
         echo "Resolved TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION}"
+
+    - name: Set TOOLCHAIN_VERSION from input
+      if: ${{ inputs.toolchain-version != '' }}
+      shell: bash
+      run: |
+        echo "TOOLCHAIN_VERSION=${{ inputs.toolchain-version }}" >> "$GITHUB_ENV"
+        echo "TOOLCHAIN_VERSION set from input: ${{ inputs.toolchain-version }}"
 
     - name: Prepare repository and generate archive
       shell: bash
