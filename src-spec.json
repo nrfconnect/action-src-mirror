@@ -1,0 +1,19 @@
+{
+    "files":
+    [
+        {
+            "aql":
+            {
+                "items.find":
+                {
+                    "name": "${file}",
+                    "$or":
+                    [{
+                        "path": {"$match": "${v1Path}"},
+                        "path": {"$match": "${v2Path}"}
+                    }]
+                }
+            }
+        }
+    ]
+}
