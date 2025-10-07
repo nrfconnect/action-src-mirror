@@ -154,25 +154,29 @@ runs:
     - name: Upload to Artifactory
       shell: bash
       run: |
-        V1_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.ref_name }}/src.tar.gz"
-        V2_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.event.repository.name }}/${{ github.ref_name }}/src.tar.gz"
+        FILE_NAME=src.tar.gz
+        V1_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.ref_name }}"
+        V2_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.event.repository.name }}/${{ github.ref_name }}"
         if [[ "${{ inputs.sdk-manager-api-version }}" == "1" ]]; then
-          SRC_ARTIFACTORY_PATH=${V1_SRC_ARTIFACTORY_PATH}
+          SRC_ARTIFACTORY_PATH=${V1_SRC_ARTIFACTORY_PATH}/${FILE_NAME}
+          SPEC_VARS="v1Path=${V1_SRC_ARTIFACTORY_PATH#*/};v2Path=${V2_SRC_ARTIFACTORY_PATH#*/};file=${FILE_NAME}"
         else
-          SRC_ARTIFACTORY_PATH=${V2_SRC_ARTIFACTORY_PATH}
+          SRC_ARTIFACTORY_PATH=${V2_SRC_ARTIFACTORY_PATH}/${FILE_NAME}
+          SPEC_VARS="v2Path=${V2_SRC_ARTIFACTORY_PATH#*/};file=${FILE_NAME}"
         fi
         echo "SRC_ARTIFACTORY_PATH=${SRC_ARTIFACTORY_PATH}"
         jfrog rt u ${FILE}.tar.gz ${SRC_ARTIFACTORY_PATH} --fail-no-op
+        if [[ "${{ inputs.sdk-manager-api-version }}" == "1" ]]; then
+          jfrog rt cp --fail-no-op --flat $V1_SRC_ARTIFACTORY_PATH $V2_SRC_ARTIFACTORY_PATH
+        fi
         if [[ "tag" == "${{ github.ref_type }}" ]]; then
+          echo "SPEC_VARS=${SPEC_VARS}"
           jfrog ds rbc "${{ github.event.repository.name }}" "${{ github.ref_name }}" \
-                       "${SRC_ARTIFACTORY_PATH}"
+                       "--spec=${{ github.action_path}}/src-spec.json" "--spec-vars" "${SPEC_VARS}"
           jfrog ds rbs "${{ github.event.repository.name }}" "${{ github.ref_name }}"
           jfrog ds rbd "${{ github.event.repository.name }}" "${{ github.ref_name }}" \
                        --create-repo \
                        --country-codes 'CN'
-        fi
-        if [[ "${{ inputs.sdk-manager-api-version }}" == "1" ]]; then
-          jfrog rt cp --fail-no-op --flat $V1_SRC_ARTIFACTORY_PATH $V2_SRC_ARTIFACTORY_PATH 
         fi
 
     - name: Download index.json
@@ -180,7 +184,7 @@ runs:
       run: |
         INDEX_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/sdk-manager/index.json"
         echo "INDEX_ARTIFACTORY_PATH=${INDEX_ARTIFACTORY_PATH}" >> $GITHUB_ENV
-        jf rt download ${INDEX_ARTIFACTORY_PATH} index.json --quiet --flat --fail-no-op 
+        jf rt download ${INDEX_ARTIFACTORY_PATH} index.json --quiet --flat --fail-no-op
         cp index.json index.json.bak
 
     - name: Upload index.json backup
@@ -197,7 +201,7 @@ runs:
         if [[ "${{ inputs.stable }}" == "true" ]]; then
           STABLE_FLAG="--stable"
         fi
-        
+
         API_VERSION_FLAG="--api-version ${{ inputs.sdk-manager-api-version }}"
         REPO_TYPE_FLAG=""
         if [[ "${{ inputs.sdk-manager-api-version }}" == "2" ]] && [[ -n "${{ inputs.repository-type }}" ]]; then
@@ -208,7 +212,7 @@ runs:
         if [[ -n "${TOOLCHAIN_VERSION:-}" ]]; then
           TOOLCHAIN_VERSION_FLAG="--toolchain-version ${TOOLCHAIN_VERSION}"
         fi
-        
+
         python3 "${{ github.action_path }}/index_manager.py" \
           --index index.json \
           --src-file "${FILE}.tar.gz" \
