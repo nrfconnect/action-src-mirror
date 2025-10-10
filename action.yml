@@ -221,6 +221,19 @@ runs:
           $API_VERSION_FLAG \
           $REPO_TYPE_FLAG $TOOLCHAIN_VERSION_FLAG
         jfrog rt u index.json ${{env.INDEX_ARTIFACTORY_PATH}} --fail-no-op
+        if [[ "tag" == "${{ github.ref_type }}" ]]; then
+          # Delete the previous version of the release bundle, as the new bundle will contain files that have been updated.
+          # If a file is part of a previous release bundle, it can't be distributed.
+          jfrog ds rbdel "sdk-manager" "v9.9.9" --sync --quiet --delete-from-dist --country-codes 'CN' || true
+
+          jfrog ds rbc --desc "${{ github.event.repository.name}} / ${{ github.ref_name }} of bundle. Older variants with same version have beend delted" \
+                       "sdk-manager" "v9.9.9" \
+                       "${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/sdk-manager/*.json"
+          jfrog ds rbs "sdk-manager" "v9.9.9"
+          jfrog ds rbd "sdk-manager" "v9.9.9" \
+                       --create-repo \
+                       --country-codes 'CN'
+        fi
 
     - name: Remove artifactory server
       if: |
