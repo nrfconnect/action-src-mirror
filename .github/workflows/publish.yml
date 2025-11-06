@@ -2,11 +2,13 @@ name: Publish Action
 
 on:
   release:
-    types: [published, edited]
+    types: [published]
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Publish
         uses: actions/publish-action@v0.3.0
