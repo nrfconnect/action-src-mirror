@@ -1,0 +1,14 @@
+name: Publish Action
+
+on:
+  release:
+    types: [published, edited]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish
+        uses: actions/publish-action@v0.3.0
+        with:
+          source-tag: ${{ github.event.release.tag_name }}
