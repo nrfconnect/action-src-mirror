@@ -1,16 +1,39 @@
-name: Publish Action
+name: Update Release Tags
 
 on:
   release:
     types: [published]
 
 jobs:
-  publish:
+  update-tags:
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Publish
-        uses: actions/publish-action@v0.3.0
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          source-tag: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Update major version tag
+        run: |
+          TAG_NAME="${{ github.event.release.tag_name }}"
+
+          # Extract major version from tag (e.g., v1.2.3 -> v1)
+          if [[ "$TAG_NAME" =~ ^v([0-9]+)\.[0-9]+\.[0-9]+.*$ ]]; then
+            MAJOR_TAG="v${BASH_REMATCH[1]}"
+            echo "Updating $MAJOR_TAG to point to $TAG_NAME"
+
+            # Configure git
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+
+            # Create or update the major version tag
+            git tag -fa "$MAJOR_TAG" -m "Update $MAJOR_TAG to $TAG_NAME"
+            git push origin "$MAJOR_TAG" --force
+
+            echo "Successfully updated $MAJOR_TAG"
+          else
+            echo "Tag $TAG_NAME does not follow semver format (vX.Y.Z)"
+            echo "Skipping major tag update"
+          fi
