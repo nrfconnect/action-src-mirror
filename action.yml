@@ -38,11 +38,11 @@ inputs:
     required: false
     default: '2'
   repository-type:
-    description: '(Only for SDK Manager API version=2) Repository type'
+    description: '(Only for SDK Manager API version=2 or 3) Repository type'
     required: false
     default: ''
   toolchain-version:
-    description: '(Only for SDK Manager API version=2) If not set, the version will be determined based on sdk-nrf revision.'
+    description: '(Only for SDK Manager API version=2 or 3) If not set, the version will be determined based on sdk-nrf revision.'
     required: false
     default: ''
 
@@ -66,7 +66,7 @@ runs:
         west-update-args: ${{ inputs.west-update-args }}
 
     - name: Find proper toolchain version
-      if: ${{ inputs.sdk-manager-api-version == '2' && !inputs.toolchain-version }}
+      if: ${{ (inputs.sdk-manager-api-version == '2' || inputs.sdk-manager-api-version == '3') && !inputs.toolchain-version }}
       shell: bash
       run: |
         set -euo pipefail
@@ -204,7 +204,7 @@ runs:
 
         API_VERSION_FLAG="--api-version ${{ inputs.sdk-manager-api-version }}"
         REPO_TYPE_FLAG=""
-        if [[ "${{ inputs.sdk-manager-api-version }}" == "2" ]] && [[ -n "${{ inputs.repository-type }}" ]]; then
+        if [[ "${{ inputs.sdk-manager-api-version }}" == "2" || "${{ inputs.sdk-manager-api-version }}" == "3" ]] && [[ -n "${{ inputs.repository-type }}" ]]; then
           REPO_TYPE_FLAG="--repository-type ${{ inputs.repository-type }}"
         fi
 
