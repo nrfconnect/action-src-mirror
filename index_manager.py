@@ -19,13 +19,13 @@ def main():
     parser.add_argument("--src-file", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--stable", action="store_true", default=False)
-    parser.add_argument("--api-version", type=int, choices=[1,2], default=2)
+    parser.add_argument("--api-version", type=int, choices=[1,2,3], default=2)
     parser.add_argument("--repository-type", required=False)
     parser.add_argument("--toolchain-version", required=False)
     args = parser.parse_args()
 
-    if args.api_version == 2 and not args.repository_type:
-        print("Error: --repository-type is required for api-version 2", file=sys.stderr)
+    if args.api_version in (2, 3) and not args.repository_type:
+        print(f"Error: --repository-type is required for api-version {args.api_version}", file=sys.stderr)
         sys.exit(1)
 
     with open(args.index) as f:
@@ -51,8 +51,10 @@ def main():
 
         data["versions"]["1"]["bundles"].insert(0, bundle)
     else:
+        # API versions 2 and 3 share the same logic; only the index.json key differs
+        version_key = str(args.api_version)
         # Validate repository-type exists in types
-        valid_types = [t["type"] for t in data["versions"]["2"]["types"]]
+        valid_types = [t["type"] for t in data["versions"][version_key]["types"]]
         if args.repository_type not in valid_types:
             print(f"Error: repository-type '{args.repository_type}' not found in index.json types", file=sys.stderr)
             sys.exit(1)
@@ -62,14 +64,14 @@ def main():
         if not args.stable:
             bundle["tags"] = ["unstable"]
             # Hide all previous unstable entries for this type
-            for b in data["versions"]["2"]["bundles"]:
+            for b in data["versions"][version_key]["bundles"]:
                 if b.get("type") == args.repository_type:
                     tags = b.get("tags")
                     if tags and "unstable" in tags and "hidden" not in tags:
                         tags.append("hidden")
                         b["tags"] = tags
 
-        data["versions"]["2"]["bundles"].insert(0, bundle)
+        data["versions"][version_key]["bundles"].insert(0, bundle)
 
     with open(args.index, "w") as f:
         json.dump(data, f, indent=2)
