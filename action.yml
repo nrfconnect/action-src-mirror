@@ -45,6 +45,10 @@ inputs:
     description: '(Only for SDK Manager API version=2 or 3) If not set, the version will be determined based on sdk-nrf revision.'
     required: false
     default: ''
+  tags:
+    description: 'Optional space-separated list of extra tags to attach to the new index entry.'
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -213,13 +217,19 @@ runs:
           TOOLCHAIN_VERSION_FLAG="--toolchain-version ${TOOLCHAIN_VERSION}"
         fi
 
+        TAGS_FLAG=""
+        if [[ -n "${{ inputs.tags }}" ]]; then
+          TAGS_FLAG="--tags ${{ inputs.tags }}"
+        fi
+
         python3 "${{ github.action_path }}/index_manager.py" \
           --index index.json \
           --src-file "${FILE}.tar.gz" \
           --version "${VERSION}" \
           $STABLE_FLAG \
           $API_VERSION_FLAG \
-          $REPO_TYPE_FLAG $TOOLCHAIN_VERSION_FLAG
+          $REPO_TYPE_FLAG $TOOLCHAIN_VERSION_FLAG \
+          $TAGS_FLAG
         jfrog rt u index.json ${{env.INDEX_ARTIFACTORY_PATH}} --fail-no-op
         if [[ "tag" == "${{ github.ref_type }}" ]]; then
           # Delete the previous version of the release bundle, as the new bundle will contain files that have been updated.
