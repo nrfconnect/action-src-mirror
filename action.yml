@@ -55,10 +55,11 @@ runs:
   steps:
     - name: Remove trailing slash if present
       shell: bash
+      env:
+        ARTIFACTORY_BASE_FOLDER_PATH: ${{ inputs.artifactory-base-folder-path }}
       run: |
-       CLEAN_PATH="${{ inputs.artifactory-base-folder-path }}"
-       CLEAN_PATH="${CLEAN_PATH%/}"
-       echo "ARTIFACTORY_BASE_FOLDER_PATH_CLEAN=$CLEAN_PATH" >> $GITHUB_ENV
+       CLEAN_PATH="${ARTIFACTORY_BASE_FOLDER_PATH%/}"
+       echo "ARTIFACTORY_BASE_FOLDER_PATH_CLEAN=$CLEAN_PATH" >> "$GITHUB_ENV"
 
 
     - name: Checkout sources
@@ -100,23 +101,28 @@ runs:
     - name: Set TOOLCHAIN_VERSION from input
       if: ${{ inputs.toolchain-version != '' }}
       shell: bash
+      env:
+        TOOLCHAIN_VERSION_INPUT: ${{ inputs.toolchain-version }}
       run: |
-        echo "TOOLCHAIN_VERSION=${{ inputs.toolchain-version }}" >> "$GITHUB_ENV"
-        echo "TOOLCHAIN_VERSION set from input: ${{ inputs.toolchain-version }}"
+        echo "TOOLCHAIN_VERSION=${TOOLCHAIN_VERSION_INPUT}" >> "$GITHUB_ENV"
+        echo "TOOLCHAIN_VERSION set from input: ${TOOLCHAIN_VERSION_INPUT}"
 
     - name: Prepare repository and generate archive
       shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        WEST_UPDATE_ARGS: ${{ inputs.west-update-args }}
       run: |
-        cd "workspace/${{ inputs.path }}"
+        cd "workspace/${INPUT_PATH}"
 
         # Configure git for better performance
         git config --global pack.windowMemory "128m"
         git config --global core.bigFileThreshold "20m"
 
         # Generate safe filename
-        WEST_ARG_SAFE="$(echo "${{ inputs.west-update-args }}" | tr ' ' '_')"
+        WEST_ARG_SAFE="$(echo "${WEST_UPDATE_ARGS}" | tr ' ' '_')"
         FILE="${GITHUB_REPOSITORY##*/}-${GITHUB_REF_NAME//\//-}${WEST_ARG_SAFE:+-$WEST_ARG_SAFE}"
-        echo "FILE=${FILE}" >> $GITHUB_ENV
+        echo "FILE=${FILE}" >> "$GITHUB_ENV"
 
         # Remove unnecessary files
         west forall -c 'git gc --prune=now --aggressive'
@@ -147,21 +153,31 @@ runs:
 
     - name: Setup artifactory server
       shell: bash
+      env:
+        ARTIFACTORY_URL: ${{ inputs.artifactory-url }}
+        ARTIFACTORY_USER: ${{ inputs.artifactory-user }}
+        ARTIFACTORY_PASS: ${{ inputs.artifactory-pass }}
       run: |
         jfrog c add temp --interactive=false \
-              --url=${{ inputs.artifactory-url }} \
-              --user=${{ inputs.artifactory-user }} \
-              --password=${{ inputs.artifactory-pass }}
+              --url="${ARTIFACTORY_URL}" \
+              --user="${ARTIFACTORY_USER}" \
+              --password="${ARTIFACTORY_PASS}"
         jfrog c use temp
         jfrog rt ping
 
     - name: Upload to Artifactory
       shell: bash
+      env:
+        SDK_MANAGER_API_VERSION: ${{ inputs.sdk-manager-api-version }}
+        GH_REF_NAME: ${{ github.ref_name }}
+        GH_REF_TYPE: ${{ github.ref_type }}
+        GH_REPO_NAME: ${{ github.event.repository.name }}
+        GH_ACTION_PATH: ${{ github.action_path }}
       run: |
         FILE_NAME=src.tar.gz
-        V1_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.ref_name }}"
-        V2_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${{ github.event.repository.name }}/${{ github.ref_name }}"
-        if [[ "${{ inputs.sdk-manager-api-version }}" == "1" ]]; then
+        V1_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${GH_REF_NAME}"
+        V2_SRC_ARTIFACTORY_PATH="${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/${GH_REPO_NAME}/${GH_REF_NAME}"
+        if [[ "${SDK_MANAGER_API_VERSION}" == "1" ]]; then
           SRC_ARTIFACTORY_PATH=${V1_SRC_ARTIFACTORY_PATH}/${FILE_NAME}
           SPEC_VARS="v1Path=${V1_SRC_ARTIFACTORY_PATH#*/};v2Path=${V2_SRC_ARTIFACTORY_PATH#*/};file=${FILE_NAME}"
         else
@@ -169,16 +185,16 @@ runs:
           SPEC_VARS="v2Path=${V2_SRC_ARTIFACTORY_PATH#*/};file=${FILE_NAME}"
         fi
         echo "SRC_ARTIFACTORY_PATH=${SRC_ARTIFACTORY_PATH}"
-        jfrog rt u ${FILE}.tar.gz ${SRC_ARTIFACTORY_PATH} --fail-no-op
-        if [[ "${{ inputs.sdk-manager-api-version }}" == "1" ]]; then
-          jfrog rt cp --fail-no-op --flat $V1_SRC_ARTIFACTORY_PATH $V2_SRC_ARTIFACTORY_PATH
+        jfrog rt u "${FILE}.tar.gz" "${SRC_ARTIFACTORY_PATH}" --fail-no-op
+        if [[ "${SDK_MANAGER_API_VERSION}" == "1" ]]; then
+          jfrog rt cp --fail-no-op --flat "$V1_SRC_ARTIFACTORY_PATH" "$V2_SRC_ARTIFACTORY_PATH"
         fi
-        if [[ "tag" == "${{ github.ref_type }}" ]]; then
+        if [[ "tag" == "${GH_REF_TYPE}" ]]; then
           echo "SPEC_VARS=${SPEC_VARS}"
-          jfrog ds rbc "${{ github.event.repository.name }}" "${{ github.ref_name }}" \
-                       "--spec=${{ github.action_path}}/src-spec.json" "--spec-vars" "${SPEC_VARS}"
-          jfrog ds rbs "${{ github.event.repository.name }}" "${{ github.ref_name }}"
-          jfrog ds rbd "${{ github.event.repository.name }}" "${{ github.ref_name }}" \
+          jfrog ds rbc "${GH_REPO_NAME}" "${GH_REF_NAME}" \
+                       "--spec=${GH_ACTION_PATH}/src-spec.json" "--spec-vars" "${SPEC_VARS}"
+          jfrog ds rbs "${GH_REPO_NAME}" "${GH_REF_NAME}"
+          jfrog ds rbd "${GH_REPO_NAME}" "${GH_REF_NAME}" \
                        --create-repo \
                        --country-codes 'CN'
         fi
@@ -199,17 +215,26 @@ runs:
 
     - name: Update index.json
       shell: bash
+      env:
+        STABLE: ${{ inputs.stable }}
+        SDK_MANAGER_API_VERSION: ${{ inputs.sdk-manager-api-version }}
+        REPOSITORY_TYPE: ${{ inputs.repository-type }}
+        TAGS: ${{ inputs.tags }}
+        GH_REF_NAME: ${{ github.ref_name }}
+        GH_REF_TYPE: ${{ github.ref_type }}
+        GH_REPO_NAME: ${{ github.event.repository.name }}
+        GH_ACTION_PATH: ${{ github.action_path }}
       run: |
-        VERSION="${{ github.ref_name }}"
+        VERSION="${GH_REF_NAME}"
         STABLE_FLAG=""
-        if [[ "${{ inputs.stable }}" == "true" ]]; then
+        if [[ "${STABLE}" == "true" ]]; then
           STABLE_FLAG="--stable"
         fi
 
-        API_VERSION_FLAG="--api-version ${{ inputs.sdk-manager-api-version }}"
+        API_VERSION_FLAG="--api-version ${SDK_MANAGER_API_VERSION}"
         REPO_TYPE_FLAG=""
-        if [[ "${{ inputs.sdk-manager-api-version }}" == "2" || "${{ inputs.sdk-manager-api-version }}" == "3" ]] && [[ -n "${{ inputs.repository-type }}" ]]; then
-          REPO_TYPE_FLAG="--repository-type ${{ inputs.repository-type }}"
+        if [[ "${SDK_MANAGER_API_VERSION}" == "2" || "${SDK_MANAGER_API_VERSION}" == "3" ]] && [[ -n "${REPOSITORY_TYPE}" ]]; then
+          REPO_TYPE_FLAG="--repository-type ${REPOSITORY_TYPE}"
         fi
 
         TOOLCHAIN_VERSION_FLAG=""
@@ -218,11 +243,11 @@ runs:
         fi
 
         TAGS_FLAG=""
-        if [[ -n "${{ inputs.tags }}" ]]; then
-          TAGS_FLAG="--tags ${{ inputs.tags }}"
+        if [[ -n "${TAGS}" ]]; then
+          TAGS_FLAG="--tags ${TAGS}"
         fi
 
-        python3 "${{ github.action_path }}/index_manager.py" \
+        python3 "${GH_ACTION_PATH}/index_manager.py" \
           --index index.json \
           --src-file "${FILE}.tar.gz" \
           --version "${VERSION}" \
@@ -230,13 +255,13 @@ runs:
           $API_VERSION_FLAG \
           $REPO_TYPE_FLAG $TOOLCHAIN_VERSION_FLAG \
           $TAGS_FLAG
-        jfrog rt u index.json ${{env.INDEX_ARTIFACTORY_PATH}} --fail-no-op
-        if [[ "tag" == "${{ github.ref_type }}" ]]; then
+        jfrog rt u index.json "${INDEX_ARTIFACTORY_PATH}" --fail-no-op
+        if [[ "tag" == "${GH_REF_TYPE}" ]]; then
           # Delete the previous version of the release bundle, as the new bundle will contain files that have been updated.
           # If a file is part of a previous release bundle, it can't be distributed.
           jfrog ds rbdel "sdk-manager" "v9.9.9" --sync --quiet --delete-from-dist --country-codes 'CN' || true
 
-          jfrog ds rbc --desc "${{ github.event.repository.name}} / ${{ github.ref_name }} of bundle. Older variants with same version have beend delted" \
+          jfrog ds rbc --desc "${GH_REPO_NAME} / ${GH_REF_NAME} of bundle. Older variants with same version have beend delted" \
                        "sdk-manager" "v9.9.9" \
                        "${ARTIFACTORY_BASE_FOLDER_PATH_CLEAN}/sdk-manager/*.json"
           jfrog ds rbs "sdk-manager" "v9.9.9"
