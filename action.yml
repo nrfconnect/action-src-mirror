@@ -70,8 +70,15 @@ runs:
         path: workspace/${{ inputs.path }}
         west-update-args: ${{ inputs.west-update-args }}
 
+    - name: Set TOOLCHAIN_VERSION from tag ref
+      if: ${{ (inputs.sdk-manager-api-version == '2' || inputs.sdk-manager-api-version == '3') && github.event_name == 'push' && github.ref_type == 'tag' && !inputs.toolchain-version }}
+      shell: bash
+      run: |
+        echo "TOOLCHAIN_VERSION=${{ github.ref_name }}" >> "$GITHUB_ENV"
+        echo "TOOLCHAIN_VERSION set from tag ref: ${{ github.ref_name }}"
+
     - name: Find proper toolchain version
-      if: ${{ (inputs.sdk-manager-api-version == '2' || inputs.sdk-manager-api-version == '3') && !inputs.toolchain-version }}
+      if: ${{ (inputs.sdk-manager-api-version == '2' || inputs.sdk-manager-api-version == '3') && !inputs.toolchain-version && !(github.event_name == 'push' && github.ref_type == 'tag') }}
       shell: bash
       run: |
         set -euo pipefail
